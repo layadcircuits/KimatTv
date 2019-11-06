@@ -1,95 +1,46 @@
-// #include <KTvDefs.h>
 #include <KimatTv.h>
-
-KimatTv ktv(0x38); // I2C device address of Kimat TV is 0x38
-
-// the library calls this function when a comms error occurs
-void errorHandler(KTvErrorCodes error)
-{
-  Serial.print(F("Error state!!! error code: "));
+KimatTv ktv(0x38); // I2C device address of Kimat TV is 0x38.
+// The library will call this function when a communication error occurs.
+void errorHandler(KTvErrorCodes error) {
+  Serial.print(F("Error state!!! Error code: "));
+  // Print out the error code (see the datasheet for more info).
   Serial.println((uint8_t)error);
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);
-  while(1); // hangup
+  while (1); // Hangup (or do something else here).
+  // Resetting both the Kimat TV module and the host is recommended.
 }
-
-void setup()
-{
+void setup() {
   Serial.begin(9600);
+  // Attach the error handler function to the library.
   ktv.attachErrorHandler(errorHandler);
-  ktv.init();
-  pinMode(LED_BUILTIN, OUTPUT);
+  ktv.init(); // Initialize communication.
+  ktv.waitUntilReady();// Wait for the device to become ready.
+  ktv.fill(KTvColor::black); // Fill the screen with black color.
+  ktv.waitUntilReady(); // Wait for the device to become ready.
 }
-
-void loop()
-{
-  static KTvBtnStatus btnAStPrev;
-  static KTvBtnStatus btnAStCur = KTvBtnStatus::unknown;
-
-  btnAStCur = ktv.getPinStatus(KTvBtn::btnA);
-  if(btnAStPrev != btnAStCur){
-    Serial.print(F("user: Btn A: "));
-    if(btnAStCur == KTvBtnStatus::unknown) Serial.println(F("unknown"));
-    else if(btnAStCur == KTvBtnStatus::pressed) Serial.println(F("pressed"));
-    else if(btnAStCur == KTvBtnStatus::released) Serial.println(F("released"));
-    btnAStPrev = btnAStCur;
-  } 
-  
-  static uint8_t userSt = 0;
-  switch(userSt){
+void loop() {
+  static uint8_t userState = 0;
+  switch (userState) {
     case 0:
-      if(ktv.isReady()){
-        ktv.fill(KTvColor::black);
-        userSt = 1;
+      if (ktv.isReady()) { // Wait until the device is ready.
+        ktv.setCursor(0,16); // Move the cursor to (0,16) on the screen.
+        userState = 1; // Go to the next state.
       }
       break;
     case 1:
-      if(ktv.isReady()){
+      if (ktv.isReady()) { // Wait until the device is ready.
         ///////////01234567890123456789
-        ktv.print("Hello world! 0123456");
-        // ktv.print(F("Hello world! 0123456"));
-        userSt = 2;
+        ktv.print("ABCDEFGHIJKLMNOPQRST"); // Print a string.
+        userState = 2; // We are done.
       }
       break;
     case 2:
-    {
-      if(ktv.isReady()){
-        ktv.setCursor(0,8);
-        userSt = 3;
-      }
-    }
-      break;
-    case 3:
-      if(ktv.isReady()){
-        ///////////01234567890123456789
-        ktv.print("ABCDEFGHIJKLMNOPQRST");
-        userSt = 4;
-      }
-      break;
-    case 4:
-      if(ktv.isReady()){
-        ktv.setCursor(0,16);
-        userSt = 5;
-      }
-      break;
-    case 5:
-      if(ktv.isReady()){
-        ///////////01234567890123456789
-        ktv.print("abcdefghijklmnopqrst");
-        userSt = 6;
-      }
-      break;
-    case 6:
+      // do nothing
       break;
     default:
       break;
   }
-
-  static uint32_t tRefHb{};
-  if(millis() - tRefHb > 500){
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-    tRefHb = millis();
-  }
-
-  ktv.run();
+  
+  // Run other tasks here. Avoid blocking delays.
+  
+  ktv.run(); // Let the library run (very important).  
 }

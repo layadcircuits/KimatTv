@@ -9,6 +9,7 @@ void errorHandler(KTvErrorCodes error) {
   // Resetting both the Kimat TV module and the host is recommended.
 }
 void setup() {
+  pinMode(13, OUTPUT);
   Serial.begin(9600);
   // Attach the error handler function to the library.
   ktv.attachErrorHandler(errorHandler);
@@ -20,6 +21,18 @@ void setup() {
 }
 
 void loop() {
+  static KTvBtnStatus btnAStPrev;
+  static KTvBtnStatus btnAStCur = KTvBtnStatus::unknown;
+
+  btnAStCur = ktv.getPinStatus(KTvBtn::btnA);
+  if (btnAStPrev != btnAStCur) {
+    Serial.print(F("user: Btn A: "));
+    if (btnAStCur == KTvBtnStatus::unknown) Serial.println(F("unknown"));
+    else if (btnAStCur == KTvBtnStatus::pressed) Serial.println(F("pressed"));
+    else if (btnAStCur == KTvBtnStatus::released) Serial.println(F("released"));
+    btnAStPrev = btnAStCur;
+  }
+
   static uint32_t tRef; // Reference timer variable.
   static uint8_t userState = 0;
   switch (userState) {
@@ -62,6 +75,12 @@ void loop() {
     default:
       break;
   }
+  
   // Run other tasks here. Avoid blocking delays.
+  static uint32_t tRefHb{};
+  if (millis() - tRefHb > 500) {
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+    tRefHb = millis();
+  }
   ktv.run(); // Let the library run (very important).
 }

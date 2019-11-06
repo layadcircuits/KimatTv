@@ -1,88 +1,40 @@
-// #include <KTvDefs.h>
 #include <KimatTv.h>
-
-KimatTv ktv(0x38); // I2C device address of Kimat TV is 0x38
-
-// the library calls this function when a comms error occurs
-void errorHandler(KTvErrorCodes error)
-{
-  Serial.print(F("Error state!!! error code: "));
+KimatTv ktv(0x38); // I2C device address of Kimat TV is 0x38.
+// The library will call this function when a communication error occurs.
+void errorHandler(KTvErrorCodes error) {
+  Serial.print(F("Error state!!! Error code: "));
+  // Print out the error code (see the datasheet for more info).
   Serial.println((uint8_t)error);
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);
-  while(1); // hangup
+  while (1); // Hangup (or do something else here).
+  // Resetting both the Kimat TV module and the host is recommended.
 }
-
-void setup()
-{
+void setup() {
   Serial.begin(9600);
+  Serial.println(F("Kimat TV Module"));
+  // Attach the error handler function to the library.
   ktv.attachErrorHandler(errorHandler);
-  ktv.init();
-  pinMode(LED_BUILTIN, OUTPUT);
+  ktv.init(); // Initialize communication.
+  ktv.waitUntilReady(); // Wait for the device to become ready.
+  ktv.fill(KTvColor::inverse); // Invert the current pixel colors.
+
+  ktv.delay(3000); // Wait for 3 sec to see the effect.
+  ktv.waitUntilReady(); // Wait for the device to become ready.
+  ktv.fill(KTvColor::black); // Fill the screen with black color.
+
+  ktv.delay(3000); // Wait for 3 sec to see the effect.
+  ktv.waitUntilReady(); // Wait for the device to become ready.    
+  ktv.fill(KTvColor::white); // Fill the screen with white color.
+  ktv.waitUntilReady(); // Wait for the device to become ready.
+
+  ktv.delay(3000); // Wait for 3 sec to see the effect.
+  ktv.waitUntilReady(); // Wait for the device to become ready.
+  ktv.fill(KTvColor::black); // Fill the screen with black color.
+
+  ///////////01234567890123456789
+  ktv.print("ABCDEFGHIJKLMNOPQRST"); // Print a string.
+  ktv.waitUntilReady(); // Wait for the device to become ready.
 }
-
-void loop()
-{
-  static KTvBtnStatus btnAStPrev;
-  static KTvBtnStatus btnAStCur = KTvBtnStatus::unknown;
-
-  btnAStCur = ktv.getPinStatus(KTvBtn::btnA);
-  if(btnAStPrev != btnAStCur){
-    Serial.print(F("user: Btn A: "));
-    if(btnAStCur == KTvBtnStatus::unknown) Serial.println(F("unknown"));
-    else if(btnAStCur == KTvBtnStatus::pressed) Serial.println(F("pressed"));
-    else if(btnAStCur == KTvBtnStatus::released) Serial.println(F("released"));
-    btnAStPrev = btnAStCur;
-  } 
-
-  // static uint32_t tRefFill{};
-  // static bool cBit{true};
-  // if(ktv.isReady()){
-  //   if(millis() - tRefFill > 3000)
-  //   {  
-  //     ktv.fill(cBit ? KTvColor::white : KTvColor::black);
-  //     cBit = !cBit;
-  //     tRefFill = millis();
-  //   }
-  // }
-  
-  static uint8_t userSt = 0;
-  switch(userSt){
-    case 0:
-      if(ktv.isReady()){
-        ktv.fill(KTvColor::black);
-        userSt = 1;
-      }
-      break;
-    case 1:
-      if(ktv.isReady()){
-        ///////////01234567890123456789
-        ktv.print("Hello world! 0123456");
-        // ktv.print(F("Hello world! 0123456"));
-        userSt = 2;
-      }
-      break;
-    case 2:
-    {
-      static uint32_t tRefFill{};
-      if(ktv.isReady()){
-        if(millis() - tRefFill > 3000)
-        {
-          ktv.fill(KTvColor::inverse);
-          tRefFill = millis();
-        }
-      }
-    }
-      break;
-    default:
-      break;
-  }
-
-  static uint32_t tRefHb{};
-  if(millis() - tRefHb > 500){
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-    tRefHb = millis();
-  }
-
-  ktv.run();
+void loop() {
+  // Run other tasks here. Avoid blocking delays.
+  ktv.run(); // Let the library run (very important).
 }

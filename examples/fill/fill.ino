@@ -14,28 +14,32 @@ void setup() {
   ktv.attachErrorHandler(errorHandler);
   ktv.init(); // Initialize communication.
   ktv.waitUntilReady();// Wait for the device to become ready.
-  ktv.fill(KTvColor::black); // Fill the screen with black color.
+  ktv.fill(KTvColor::inverse); // Fill the screen with black color.
+  ktv.delay(3000); // Wait for 3 sec to see the effect.
   ktv.waitUntilReady(); // Wait for the device to become ready.
 }
 void loop() {
+  static uint32_t tRef; // Reference timer variable.
   static uint8_t userState = 0;
   switch (userState) {
     case 0:
-      if (ktv.isReady()) { // Wait until the device is ready.
-        ktv.setFont(KTvFont::font4x6); // Use the 4x6 font.
-        userState = 1; // Go to the next state.
+      if(millis() - tRef > 3000){ // Wait for 3 sec to see the effect.
+        if (ktv.isReady()) { // Wait until the device is ready.
+          ktv.fill(KTvColor::white); // Fill the screen with white color.
+          tRef = millis(); // Start the timer.
+          userState = 1; // Go to the next state.     
+        }
       }
       break;
     case 1:
-      if (ktv.isReady()) { // Wait until the device is ready.
-        ///////////01234567890123456789
-        ktv.print("ABCDEFGHIJKLMNOPQRST"); // Print a string.
-        userState = 2; // We are done.
+      if(millis() - tRef > 3000){ // Wait for 3 sec to see the effect.
+        if (ktv.isReady()) { // Wait until the device is ready.
+          ktv.fill(KTvColor::black); // Fill the screen with black color.
+          tRef = millis(); // Start the timer.
+          userState = 0; // Go back to the previous state.          
+        }
       }
-      break;
-    case 2:
-      // do nothing
-      break;
+      break; 
     default:
       break;
   }
