@@ -34,17 +34,6 @@ void loop()
     else if(btnAStCur == KTvBtnStatus::released) Serial.println(F("released"));
     btnAStPrev = btnAStCur;
   } 
-
-  // static uint32_t tRefFill{};
-  // static bool cBit{true};
-  // if(ktv.isReady()){
-  //   if(millis() - tRefFill > 3000)
-  //   {  
-  //     ktv.fill(cBit ? KTvColor::white : KTvColor::black);
-  //     cBit = !cBit;
-  //     tRefFill = millis();
-  //   }
-  // }
   
   static uint8_t userSt = 0;
   switch(userSt){
@@ -64,15 +53,33 @@ void loop()
       break;
     case 2:
     {
-      static uint32_t tRefFill{};
       if(ktv.isReady()){
-        if(millis() - tRefFill > 3000)
-        {
-          ktv.fill(KTvColor::inverse);
-          tRefFill = millis();
-        }
+        ktv.setCursor(0,8);
+        userSt = 3;
       }
     }
+      break;
+    case 3:
+      if(ktv.isReady()){
+        ///////////01234567890123456789
+        ktv.print("ABCDEFGHIJKLMNOPQRST");
+        userSt = 4;
+      }
+      break;
+    case 4:
+      if(ktv.isReady()){
+        ktv.setCursor(0,16);
+        userSt = 5;
+      }
+      break;
+    case 5:
+      if(ktv.isReady()){
+        ///////////01234567890123456789
+        ktv.print("abcdefghijklmnopqrst");
+        userSt = 6;
+      }
+      break;
+    case 6:
       break;
     default:
       break;

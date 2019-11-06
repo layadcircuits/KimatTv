@@ -33,46 +33,33 @@ void loop()
     else if(btnAStCur == KTvBtnStatus::pressed) Serial.println(F("pressed"));
     else if(btnAStCur == KTvBtnStatus::released) Serial.println(F("released"));
     btnAStPrev = btnAStCur;
-  } 
+  }
 
-  // static uint32_t tRefFill{};
-  // static bool cBit{true};
-  // if(ktv.isReady()){
-  //   if(millis() - tRefFill > 3000)
-  //   {  
-  //     ktv.fill(cBit ? KTvColor::white : KTvColor::black);
-  //     cBit = !cBit;
-  //     tRefFill = millis();
-  //   }
-  // }
-  
   static uint8_t userSt = 0;
   switch(userSt){
     case 0:
-      if(ktv.isReady()){
-        ktv.fill(KTvColor::black);
-        userSt = 1;
-      }
+      while(!ktv.isReady()); ktv.fill(KTvColor::black);
+      while(!ktv.isReady()); ktv.setCursor(0,0);
+      //////////////////////////////////01234567890123456789
+      while(!ktv.isReady()); ktv.print("500 Hz, 1000 ms     ");
+      while(!ktv.isReady()); ktv.startTone(500, 1000);
+      ktv.delay(1000);
+
+      while(!ktv.isReady()); ktv.setCursor(0,8);
+      //////////////////////////////////01234567890123456789
+      while(!ktv.isReady()); ktv.print("5000 Hz, 5000 ms    ");
+      while(!ktv.isReady()); ktv.startTone(5000, 5000);
+      ktv.delay(5000);
+
+      while(!ktv.isReady()); ktv.setCursor(0,16 );
+      //////////////////////////////////01234567890123456789
+      while(!ktv.isReady()); ktv.print("10000 Hz, 3000 ms   ");
+      while(!ktv.isReady()); ktv.startTone(10000, 3000);
+      ktv.delay(3000);
+
+      userSt = 1;
       break;
     case 1:
-      if(ktv.isReady()){
-        ///////////01234567890123456789
-        ktv.print("Hello world! 0123456");
-        // ktv.print(F("Hello world! 0123456"));
-        userSt = 2;
-      }
-      break;
-    case 2:
-    {
-      static uint32_t tRefFill{};
-      if(ktv.isReady()){
-        if(millis() - tRefFill > 3000)
-        {
-          ktv.fill(KTvColor::inverse);
-          tRefFill = millis();
-        }
-      }
-    }
       break;
     default:
       break;

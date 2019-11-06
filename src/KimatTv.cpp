@@ -3,7 +3,6 @@
 void KimatTv::init()
 {
   Wire.begin();
-// init device polling here
 #ifdef DBG_D1
   if (dbgPrt != nullptr)
   {
@@ -78,12 +77,122 @@ void KimatTv::transmitPacket(uint8_t width, uint8_t *bfr)
 #endif
 }
 
+bool KimatTv::isReady(){
+  return (status == KTvStatus::ready) ? true : false;  
+}
+
+void KimatTv::waitUntilReady(){
+  run();
+  while(status != KTvStatus::ready){
+    run();
+  }
+}
+
+void KimatTv::setCursor(uint8_t x, uint8_t y){
+  if (status == KTvStatus::busy) return;
+  uint8_t payload[2]{x,y};
+  memset(sendBfr,0,sizeof(sendBfr));
+  pktLenToTx = constructPacket((uint8_t)KTvCmd::setCursor, (uint8_t)KTvSymbol::dummy, 0x02, payload, sendBfr);
+  isUsrCmdPending = true;
+}
+
+void KimatTv::setFont(KTvFont font){
+  if (status == KTvStatus::busy) return;
+  uint8_t payload[1]{(uint8_t)KTvSymbol::dummy};
+  memset(sendBfr,0,sizeof(sendBfr));
+  pktLenToTx = constructPacket((uint8_t)KTvCmd::setFont, (uint8_t)font, 0x01, payload, sendBfr);
+  isUsrCmdPending = true;
+}
+
 void KimatTv::queryButton(KTvBtn btn)
 {
   uint8_t payload[1]{(uint8_t)KTvSymbol::dummy};
   memset(sendBfr2, 0, sizeof(sendBfr2));
   uint8_t lenPkt = constructPacket((uint8_t)KTvCmd::queryButton, (uint8_t)btn, 0x01, payload, sendBfr2);
   transmitPacket(lenPkt, sendBfr2);
+}
+
+void KimatTv::print(char *str){
+  if (status == KTvStatus::busy) return;
+  uint8_t payload[KTV_LEN_MAX_PAYLOAD]{};
+  uint8_t i;
+  for(i=0; i<KTV_LEN_MAX_PAYLOAD; i++){
+    if(str[i]) payload[i] = str[i];
+    else break;
+  }
+  memset(sendBfr,0,sizeof(sendBfr));
+  pktLenToTx = constructPacket((uint8_t)KTvCmd::print, (uint8_t)KTvSymbol::dummy, i, payload, sendBfr);
+  isUsrCmdPending = true;
+}
+
+void KimatTv::fill(KTvColor color)
+{
+  if (status == KTvStatus::busy)
+    return;
+  uint8_t payload[1]{(uint8_t)KTvSymbol::dummy};
+  memset(sendBfr, 0, sizeof(sendBfr));
+  pktLenToTx = constructPacket((uint8_t)KTvCmd::fill, (uint8_t)color, 0x01, payload, sendBfr);
+  isUsrCmdPending = true;
+}
+
+void KimatTv::setPixel(uint8_t x, uint8_t y, KTvColor color){
+#ifdef DBG_D6
+  if(dbgPrt != nullptr){
+    dbgPrt->print(F("KTv: setPixel():tst pt 1: x,y: ")); dbgPrt->print(x);
+    dbgPrt->print(F(",")); dbgPrt->println(y);
+  }
+#endif
+  if (status == KTvStatus::busy) return;
+#ifdef DBG_D6
+  if(dbgPrt != nullptr){
+    dbgPrt->print(F("KTv: setPixel():tst pt 2: x,y: ")); dbgPrt->print(x);
+    dbgPrt->print(F(",")); dbgPrt->println(y);
+  }
+#endif
+  // uint8_t payload[]{x,y,(uint8_t)color};
+  uint8_t payload[]{x,y};
+  memset(sendBfr,0,sizeof(sendBfr));
+  // pktLenToTx =  constructPacket((uint8_t)KTvCmd::setPixel, (uint8_t)KTvSymbol::dummy, 0x03, payload, sendBfr);
+  pktLenToTx = constructPacket((uint8_t)KTvCmd::setPixel, (uint8_t)color, 0x02, payload, sendBfr);
+#ifdef DBG_D6
+  if(dbgPrt != nullptr){
+    dbgPrt->println(F("KTv: setPixel(): constructed pkt: "));
+    printU8Array(sendBfr, pktLenToTx);
+    dbgPrt->println();
+  }
+#endif
+  isUsrCmdPending = true;
+}
+
+void KimatTv::tone(KTvToneCmd cmdType, uint16_t freq, uint32_t duration){
+  if (status == KTvStatus::busy) return;
+  uint8_t payload[]{
+    (uint8_t)((freq>>8) & 0xFF),
+    (uint8_t)(freq & 0xFF),
+    (uint8_t)((duration>>24) & 0xFF),
+    (uint8_t)((duration>>16) & 0xFF),
+    (uint8_t)((duration>>8) & 0xFF),
+    (uint8_t)((duration) & 0xFF)
+  };
+  memset(sendBfr,0,sizeof(sendBfr));
+  pktLenToTx = constructPacket((uint8_t)KTvCmd::tone, (uint8_t)cmdType, 0x06, payload, sendBfr);
+  isUsrCmdPending = true;
+}
+
+void KimatTv::startTone(uint16_t freq, uint32_t duration){
+  tone(KTvToneCmd::start, freq, duration);
+}
+
+void KimatTv::stopTone(){
+  tone(KTvToneCmd::stop, 0, 0);
+}
+
+void KimatTv::delay(uint32_t period){
+  static uint32_t tRef{};
+  tRef = millis();
+  while(millis() - tRef <= period){
+    run();
+  }
 }
 
 void KimatTv::run()
@@ -104,42 +213,19 @@ void KimatTv::run()
   {
   case MnSt00::initial:
 #ifdef DBG_D4B
-      if (dbgPrt != nullptr)
-      {
-        dbgPrt->print(F("isUsrCmdPending isBtnCmdPending: "));
-        dbgPrt->print(isUsrCmdPending); dbgPrt->println(isBtnCmdPending);
-      }
+    if (dbgPrt != nullptr)
+    {
+      dbgPrt->println();
+      dbgPrt->print(F("isUsrCmdPending isBtnCmdPending: "));
+      dbgPrt->print(isUsrCmdPending);
+      dbgPrt->println(isBtnCmdPending);
+    }
 #endif
 
-    if(!isUsrCmdPending && !isBtnCmdPending){
-      queryButton((KTvBtn)queryBtnCtr);
-      status = KTvStatus::busy;
-      tRefSend = millis();
-      mnSt = MnSt00::pollForReply;
-#ifdef DBG_D4B
-      if (dbgPrt != nullptr)
-      {
-        dbgPrt->println(F("KTv: Btn query cmd sent to device."));
-      }
-#endif
-    }
-    else if(!isUsrCmdPending && isBtnCmdPending){
-      queryButton((KTvBtn)queryBtnCtr);
-      status = KTvStatus::busy;
-      tRefSend = millis();
-      mnSt = MnSt00::pollForReply;
-#ifdef DBG_D4B
-      if (dbgPrt != nullptr)
-      {
-        dbgPrt->println(F("KTv: Btn query cmd sent to device."));
-      }
-#endif
-    }
-    else if(isUsrCmdPending && !isBtnCmdPending){
+    if (isUsrCmdPending && !isBtnCmdPending)
+    {
       // send user cmd here
-      status = KTvStatus::busy;
-      tRefSend = millis();
-      mnSt = MnSt00::pollForReply;
+      transmitPacket(pktLenToTx, sendBfr);
 #ifdef DBG_D4B
       if (dbgPrt != nullptr)
       {
@@ -147,11 +233,9 @@ void KimatTv::run()
       }
 #endif
     }
-    else if(isUsrCmdPending && isBtnCmdPending){
+    else
+    {
       queryButton((KTvBtn)queryBtnCtr);
-      status = KTvStatus::busy;
-      tRefSend = millis();
-      mnSt = MnSt00::pollForReply;
 #ifdef DBG_D4B
       if (dbgPrt != nullptr)
       {
@@ -159,35 +243,9 @@ void KimatTv::run()
       }
 #endif
     }
-
-
-
-//     if (isUsrCmdPending)
-//     {
-//       // send user cmd
-//       status = KTvStatus::busy;
-//       tRefSend = millis();
-//       mnSt = MnSt00::pollForReply;
-// #ifdef DBG_D4B
-//       if (dbgPrt != nullptr)
-//       {
-//         dbgPrt->println(F("KTv: Usr cmd sent to device."));
-//       }
-// #endif
-//     }
-//     else
-//     {
-//       queryButton((KTvBtn)queryBtnCtr);
-//       status = KTvStatus::busy;
-//       tRefSend = millis();
-//       mnSt = MnSt00::pollForReply;
-// #ifdef DBG_D4B
-//       if (dbgPrt != nullptr)
-//       {
-//         dbgPrt->println(F("KTv: Btn query cmd sent to device."));
-//       }
-// #endif
-//     }
+    status = KTvStatus::busy;
+    tRefSend = millis();
+    mnSt = MnSt00::pollForReply;
     break;
   case MnSt00::pollForReply:
     if (millis() - tRefSend > KTV_PERIOD_WAITBEFOREPOLL) // wait before polling
@@ -205,7 +263,8 @@ void KimatTv::run()
       uint8_t r = Wire.read(); // WA1 (a 0x00 is available in the bus just after a request)
       if (dbgPrt != nullptr)
       {
-        dbgPrt->print(F("KTv: TST_1 dev reply: ")); dbgPrt->println(r);
+        dbgPrt->print(F("KTv: TST_1 device reply: "));
+        dbgPrt->println(r);
       }
 #endif
     }
@@ -222,169 +281,218 @@ void KimatTv::run()
         dbgPrt->println(b, HEX);
       }
 #endif
-      if (b == (uint8_t)KTvSymbol::ack)
+      KTvSymbol rcvdReply = (KTvSymbol)b;
+
+      if (isUsrCmdPending && !isBtnCmdPending) // user cmd sent and waiting for a reply
       {
-        if (isUsrCmdPending)
+        if (rcvdReply == KTvSymbol::ack) // the device ack'd the usr cmd
         {
+#ifdef DBG_D4AU
+          if (dbgPrt != nullptr)
+          {
+            dbgPrt->println(F("KTv: user cmd ack'd"));
+          }
+#endif
+          if (userCmdErrCtr)
+          {
+            userCmdErrCtr = 0;
+#ifdef DBG_D4AU
+            if (dbgPrt != nullptr)
+            {
+              dbgPrt->print(F("userCmdErrCtr reset: "));
+              dbgPrt->println(userCmdErrCtr);
+            }
+#endif
+          }
           isUsrCmdPending = false;
-          status = KTvStatus::ready;
+          isBtnCmdPending = true;
+          // status = KTvStatus::ready;
           mnSt = MnSt00::initial;
         }
-        else
-        { // device ack'd a query btn cmd (unlikely to happen)
-          btnStates[queryBtnCtr] = KTvBtnStatus::unknown;
-          queryBtnErrCtr++; // increment btn error ctr
-          if (queryBtnErrCtr < QTY_COUNT_MAXQUERYBTNERRORS)
-            mnSt = MnSt00::initial; // query the same btn in the next cycle
+        else // the device did not ack the usr cmd
+        {
+          userCmdErrCtr++;
+#ifdef DBG_D4AU
+          if (dbgPrt != nullptr)
+          {
+            dbgPrt->print(F("KTv: userCmdErrCtr: "));
+            dbgPrt->println(userCmdErrCtr);
+          }
+#endif
+          if (userCmdErrCtr < QTY_COUNT_MAXERROREVENTS)
+          {
+            if (rcvdReply == KTvSymbol::busy)
+            {
+              tRefSend = millis();
+              mnSt = MnSt00::pollForReply;
+            }
+            else
+              mnSt = MnSt00::initial;
+          }
           else
           {
-            deviceErrorCode = KTvErrorCodes::btnQueryAkd;
+            // if (rcvdReply == KTvSymbol::ack)
+            //   deviceErrorCode = KTvErrorCodes::userCmdAkd;
+            if (rcvdReply == KTvSymbol::nak)
+              deviceErrorCode = KTvErrorCodes::userCmdNkd;
+            else if (rcvdReply == KTvSymbol::ready)
+              deviceErrorCode = KTvErrorCodes::userCmdNoReplyReady;
+            else if (rcvdReply == KTvSymbol::busy)
+              deviceErrorCode = KTvErrorCodes::userCmdNoReplyBusy;
+            else
+              deviceErrorCode = KTvErrorCodes::userCmdUnkRep;
             mnSt = MnSt00::error;
           }
         }
       }
-      else if (b == (uint8_t)KTvSymbol::nak)
+
+      else // btn query cmd sent and waiting for a reply
       {
-        if (isUsrCmdPending)
+        if ( // the device replied with a button byte
+            rcvdReply == KTvSymbol::btnAHi || rcvdReply == KTvSymbol::btnALo ||
+            rcvdReply == KTvSymbol::btnBHi || rcvdReply == KTvSymbol::btnBLo ||
+            rcvdReply == KTvSymbol::btnCHi || rcvdReply == KTvSymbol::btnCLo ||
+            rcvdReply == KTvSymbol::btnDHi || rcvdReply == KTvSymbol::btnDLo ||
+            rcvdReply == KTvSymbol::btnEHi || rcvdReply == KTvSymbol::btnELo ||
+            rcvdReply == KTvSymbol::btnFHi || rcvdReply == KTvSymbol::btnFLo)
         {
-          // retransmit
-          // increment nak ctr
-          mnSt = MnSt00::retransmit;
-        }
-        else
-        { // device nak'd a query btn cmd
-          btnStates[queryBtnCtr] = KTvBtnStatus::unknown;
-          queryBtnErrCtr++; // increment btn error ctr
-          if (queryBtnErrCtr < QTY_COUNT_MAXQUERYBTNERRORS)
-            mnSt = MnSt00::initial; // query the same btn in the next cycle
-          else
+          if (rcvdReply == KTvSymbol::btnAHi || rcvdReply == KTvSymbol::btnALo)
+            btnStates[(uint8_t)KTvBtn::btnA] = (rcvdReply == KTvSymbol::btnAHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
+          else if (rcvdReply == KTvSymbol::btnBHi || rcvdReply == KTvSymbol::btnBLo)
+            btnStates[(uint8_t)KTvBtn::btnB] = (rcvdReply == KTvSymbol::btnBHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
+          else if (rcvdReply == KTvSymbol::btnCHi || rcvdReply == KTvSymbol::btnCLo)
+            btnStates[(uint8_t)KTvBtn::btnC] = (rcvdReply == KTvSymbol::btnCHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
+          else if (rcvdReply == KTvSymbol::btnDHi || rcvdReply == KTvSymbol::btnDLo)
+            btnStates[(uint8_t)KTvBtn::btnD] = (rcvdReply == KTvSymbol::btnDHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
+          else if (rcvdReply == KTvSymbol::btnEHi || rcvdReply == KTvSymbol::btnELo)
+            btnStates[(uint8_t)KTvBtn::btnE] = (rcvdReply == KTvSymbol::btnEHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
+          else if (rcvdReply == KTvSymbol::btnFHi || rcvdReply == KTvSymbol::btnFLo)
+            btnStates[(uint8_t)KTvBtn::btnF] = (rcvdReply == KTvSymbol::btnFHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
+#ifdef DBG_D4AB
+          if (dbgPrt != nullptr)
           {
-            deviceErrorCode = KTvErrorCodes::btnQueryNkd;
-            mnSt = MnSt00::error;
+            dbgPrt->println(F("KTv: btn query rcvd a btn reply"));
           }
-        }
-      }
-      else if (b == (uint8_t)KTvSymbol::busy)
-      {
-        // increment busy counter (no need because device will always become 'not busy'?)
-        // issue another request for reply in the next cycle
-        tRefSend = millis();
-        mnSt = MnSt00::pollForReply;
-      }
-      else if (b == (uint8_t)KTvSymbol::ready)
-      {
-        if (isUsrCmdPending) // device did not ack/nak user cmd (unlikely to happen)
-        {
-          // retransmit
-          // reset nak ctr
-          mnSt = MnSt00::retransmit;
-        }
-        else
-        { // device did not ack, nak nor reply to a btn query cmd (unlikely to happen)
-          btnStates[queryBtnCtr] = KTvBtnStatus::unknown;
-          queryBtnErrCtr++; // increment btn error ctr
-          if (queryBtnErrCtr < QTY_COUNT_MAXQUERYBTNERRORS)
-            mnSt = MnSt00::initial; // query the same btn in the next cycle
-          else
+#endif
+          if (btnCmdErrCtr)
           {
-            deviceErrorCode = KTvErrorCodes::btnQueryNoReply;
-            mnSt = MnSt00::error;
+            btnCmdErrCtr = 0;
+#ifdef DBG_D4AB
+            if (dbgPrt != nullptr)
+            {
+              dbgPrt->print(F("btnCmdErrCtr reset: "));
+              dbgPrt->println(btnCmdErrCtr);
+            }
+#endif
           }
+
+          // if (!isUsrCmdPending && !isBtnCmdPending)
+          // {
+          //   status = KTvStatus::ready;
+          //   mnSt = MnSt00::initial;
+          // }
+          // else if (!isUsrCmdPending && isBtnCmdPending)
+          // {
+          //   isBtnCmdPending = false;
+          //   status = KTvStatus::ready;
+          //   mnSt = MnSt00::initial;
+          // }
+          // else if (isUsrCmdPending && isBtnCmdPending)
+          // {
+          //   isBtnCmdPending = false;
+          //   status = KTvStatus::ready;
+          //   mnSt = MnSt00::initial;
+          // }
+
+          if (isBtnCmdPending){
+            isBtnCmdPending = false;
+            status = KTvStatus::ready;
+          }
+          else if(!isUsrCmdPending && !isBtnCmdPending ){
+            status = KTvStatus::ready;
+          }
+
+          queryBtnCtr++;
+          if ((KTvBtn)queryBtnCtr >= KTvBtn::max)
+            queryBtnCtr = 0;
+
+          // status = KTvStatus::ready;
+          mnSt = MnSt00::initial;
         }
-      }
-      // check button bytes here
-      else if (b == (uint8_t)KTvSymbol::btnAHi || b == (uint8_t)KTvSymbol::btnALo)
-      {
-        btnStates[(uint8_t)KTvBtn::btnA] = (b == (uint8_t)KTvSymbol::btnAHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
-        queryBtnErrCtr = 0;
-        queryBtnCtr++;
-        if ((KTvBtn)queryBtnCtr >= KTvBtn::max)
-          queryBtnCtr = 0;
-        status = KTvStatus::ready;
-        mnSt = MnSt00::initial;
-      }
-      else if (b == (uint8_t)KTvSymbol::btnBHi || b == (uint8_t)KTvSymbol::btnBLo)
-      {
-        btnStates[(uint8_t)KTvBtn::btnB] = (b == (uint8_t)KTvSymbol::btnBHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
-        queryBtnErrCtr = 0;
-        queryBtnCtr++;
-        if ((KTvBtn)queryBtnCtr >= KTvBtn::max)
-          queryBtnCtr = 0;
-        status = KTvStatus::ready;
-        mnSt = MnSt00::initial;
-      }
-      else if (b == (uint8_t)KTvSymbol::btnCHi || b == (uint8_t)KTvSymbol::btnCLo)
-      {
-        btnStates[(uint8_t)KTvBtn::btnC] = (b == (uint8_t)KTvSymbol::btnCHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
-        queryBtnErrCtr = 0;
-        queryBtnCtr++;
-        if ((KTvBtn)queryBtnCtr >= KTvBtn::max)
-          queryBtnCtr = 0;
-        status = KTvStatus::ready;
-        mnSt = MnSt00::initial;
-      }
-      else if (b == (uint8_t)KTvSymbol::btnDHi || b == (uint8_t)KTvSymbol::btnDLo)
-      {
-        btnStates[(uint8_t)KTvBtn::btnD] = (b == (uint8_t)KTvSymbol::btnDHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
-        queryBtnErrCtr = 0;
-        queryBtnCtr++;
-        if ((KTvBtn)queryBtnCtr >= KTvBtn::max)
-          queryBtnCtr = 0;
-        status = KTvStatus::ready;
-        mnSt = MnSt00::initial;
-      }
-      else if (b == (uint8_t)KTvSymbol::btnEHi || b == (uint8_t)KTvSymbol::btnELo)
-      {
-        btnStates[(uint8_t)KTvBtn::btnE] = (b == (uint8_t)KTvSymbol::btnEHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
-        queryBtnErrCtr = 0;
-        queryBtnCtr++;
-        if ((KTvBtn)queryBtnCtr >= KTvBtn::max)
-          queryBtnCtr = 0;
-        status = KTvStatus::ready;
-        mnSt = MnSt00::initial;
-      }
-      else if (b == (uint8_t)KTvSymbol::btnFHi || b == (uint8_t)KTvSymbol::btnFLo)
-      {
-        btnStates[(uint8_t)KTvBtn::btnF] = (b == (uint8_t)KTvSymbol::btnFHi) ? KTvBtnStatus::pressed : KTvBtnStatus::released;
-        queryBtnErrCtr = 0;
-        queryBtnCtr++;
-        if ((KTvBtn)queryBtnCtr >= KTvBtn::max)
-          queryBtnCtr = 0;
-        status = KTvStatus::ready;
-        mnSt = MnSt00::initial;
-      }
-      else // unknown reply byte
-      {
-        if (isUsrCmdPending)
+        else // the device did not reply with a button byte
         {
-          // retransmit
-        }
-        else
-        { // unknown reply for a btn query
           btnStates[queryBtnCtr] = KTvBtnStatus::unknown;
-          queryBtnErrCtr++; // increment btn error ctr
-          if (queryBtnErrCtr < QTY_COUNT_MAXQUERYBTNERRORS)
-            mnSt = MnSt00::initial; // query the same btn in the next cycle
+          btnCmdErrCtr++;
+#ifdef DBG_D4AB
+          if (dbgPrt != nullptr)
+          {
+            dbgPrt->print(F("KTv: btnCmdErrCtr: "));
+            dbgPrt->println(btnCmdErrCtr);
+          }
+#endif
+          if (btnCmdErrCtr < QTY_COUNT_MAXERROREVENTS)
+          {
+            if (rcvdReply == KTvSymbol::busy)
+            {
+              tRefSend = millis();
+              mnSt = MnSt00::pollForReply;
+            }
+            else
+              mnSt = MnSt00::initial;
+          }
           else
           {
-            deviceErrorCode = KTvErrorCodes::btnQueryUnkRep;
+            if (rcvdReply == KTvSymbol::ack)
+              deviceErrorCode = KTvErrorCodes::btnQueryAkd;
+            else if (rcvdReply == KTvSymbol::nak)
+              deviceErrorCode = KTvErrorCodes::btnQueryNkd;
+            else if (rcvdReply == KTvSymbol::ready)
+              deviceErrorCode = KTvErrorCodes::btnQueryNoReplyReady;
+            else if (rcvdReply == KTvSymbol::busy)
+              deviceErrorCode = KTvErrorCodes::btnQueryNoReplyBusy;
+            else
+              deviceErrorCode = KTvErrorCodes::btnQueryUnkRep;
             mnSt = MnSt00::error;
           }
         }
       }
     }
+
     else if (millis() - tRefSend > KTV_PERIOD_TIMEOUT)
     {
-      // retransmit
-      if (isUsrCmdPending)
+      if (isUsrCmdPending && !isBtnCmdPending) // user cmd sent and the device didn't reply within KTV_PERIOD_TIMEOUT
       {
+        userCmdErrCtr++;
+#ifdef DBG_D4AU
+        if (dbgPrt != nullptr)
+        {
+          dbgPrt->println(F("KTv: user cmd reply timed out!"));
+          dbgPrt->print(F("KTv: userCmdErrCtr: "));
+          dbgPrt->println(userCmdErrCtr);
+        }
+#endif
+        if (userCmdErrCtr < QTY_COUNT_MAXERROREVENTS)
+          mnSt = MnSt00::initial;
+        else
+        {
+          deviceErrorCode = KTvErrorCodes::userCmdTimeout;
+          mnSt = MnSt00::error;
+        }
       }
-      else
+      else // btn query cmd sent and the device didn't reply within KTV_PERIOD_TIMEOUT
       {
         btnStates[queryBtnCtr] = KTvBtnStatus::unknown;
-        queryBtnErrCtr++; // increment btn error ctr
-        if (queryBtnErrCtr < QTY_COUNT_MAXQUERYBTNERRORS)
-          mnSt = MnSt00::initial; // query the same btn in the next cycle
+        btnCmdErrCtr++;
+#ifdef DBG_D4AB
+        if (dbgPrt != nullptr)
+        {
+          dbgPrt->println(F("KTv: btn cmd reply timed out!"));
+          dbgPrt->print(F("KTv: btnCmdErrCtr: "));
+          dbgPrt->println(btnCmdErrCtr);
+        }
+#endif
+        if (btnCmdErrCtr < QTY_COUNT_MAXERROREVENTS)
+          mnSt = MnSt00::initial;
         else
         {
           deviceErrorCode = KTvErrorCodes::btnQueryTimeout;
@@ -406,51 +514,67 @@ void KimatTv::run()
       if (dbgPrt != nullptr)
       {
         dbgPrt->print(F("KTv: error state: "));
-        if (deviceErrorCode == KTvErrorCodes::btnQueryAkd || deviceErrorCode == KTvErrorCodes::btnQueryNkd || deviceErrorCode == KTvErrorCodes::btnQueryNoReply || deviceErrorCode == KTvErrorCodes::btnQueryUnkRep || deviceErrorCode == KTvErrorCodes::btnQueryTimeout)
+        if (deviceErrorCode == KTvErrorCodes::btnQueryAkd ||
+            deviceErrorCode == KTvErrorCodes::btnQueryNkd ||
+            deviceErrorCode == KTvErrorCodes::btnQueryNoReplyBusy ||
+            deviceErrorCode == KTvErrorCodes::btnQueryNoReplyReady ||
+            deviceErrorCode == KTvErrorCodes::btnQueryUnkRep ||
+            deviceErrorCode == KTvErrorCodes::btnQueryTimeout)
         {
           dbgPrt->println(F("too many btn query error events!"));
           dbgPrt->print(F("  : last error: "));
           switch (deviceErrorCode)
           {
-          case KTvErrorCodes::btnQueryAkd: // tested 2019/11/02
+          case KTvErrorCodes::btnQueryAkd:
             dbgPrt->println(F("btn query ack'd"));
             break;
-          case KTvErrorCodes::btnQueryNkd: // tested 2019/11/02
+          case KTvErrorCodes::btnQueryNkd:
             dbgPrt->println(F("btn query nak'd"));
             break;
-          case KTvErrorCodes::btnQueryNoReply: // tested 2019/11/02
-            dbgPrt->println(F("btn query no reply(device is ready)"));
+          case KTvErrorCodes::btnQueryNoReplyBusy:
+            dbgPrt->println(F("btn query no reply(device is always busy)"));
             break;
-          case KTvErrorCodes::btnQueryUnkRep: // tested 2019/11/02
+          case KTvErrorCodes::btnQueryNoReplyReady:
+            dbgPrt->println(F("btn query no reply(device is always ready)"));
+            break;
+          case KTvErrorCodes::btnQueryUnkRep:
             dbgPrt->println(F("btn query unknown reply"));
             break;
-          case KTvErrorCodes::btnQueryTimeout: // tested 2019/11/02
+          case KTvErrorCodes::btnQueryTimeout:
             dbgPrt->println(F("btn query no reply(timeout)"));
             break;
           default:
             break;
           }
         }
-        else if (deviceErrorCode == KTvErrorCodes::userCmdAkd || deviceErrorCode == KTvErrorCodes::userCmdNkd || deviceErrorCode == KTvErrorCodes::userCmdNoReply || deviceErrorCode == KTvErrorCodes::userCmdUnkRep || deviceErrorCode == KTvErrorCodes::userCmdTimeout)
+        else if ( //deviceErrorCode == KTvErrorCodes::userCmdAkd ||
+                 deviceErrorCode == KTvErrorCodes::userCmdNkd ||
+                 deviceErrorCode == KTvErrorCodes::userCmdNoReplyBusy ||
+                 deviceErrorCode == KTvErrorCodes::userCmdNoReplyReady ||
+                 deviceErrorCode == KTvErrorCodes::userCmdUnkRep ||
+                 deviceErrorCode == KTvErrorCodes::userCmdTimeout)
         {
-          Serial.println(F("too many user cmd error events!"));
-          Serial.print(F("  : last error: "));
+          dbgPrt->println(F("too many user cmd error events!"));
+          dbgPrt->print(F("  : last error: "));
           switch (deviceErrorCode)
           {
-          case KTvErrorCodes::userCmdAkd: // tested 2019/11/02
-            Serial.println(F("user cmd ack'd"));
+          // case KTvErrorCodes::userCmdAkd:
+          //   dbgPrt->println(F("user cmd ack'd"));
+          //   break;
+          case KTvErrorCodes::userCmdNkd:
+            dbgPrt->println(F("user cmd nak'd"));
             break;
-          case KTvErrorCodes::userCmdNkd: // tested 2019/11/02
-            Serial.println(F("user cmd nak'd"));
+          case KTvErrorCodes::userCmdNoReplyBusy:
+            dbgPrt->println(F("user cmd no reply(device is always busy)"));
             break;
-          case KTvErrorCodes::userCmdNoReply: // tested 2019/11/02
-            Serial.println(F("user cmd no reply(device is ready)"));
+          case KTvErrorCodes::userCmdNoReplyReady:
+            dbgPrt->println(F("user cmd no reply(device is always ready)"));
             break;
-          case KTvErrorCodes::userCmdUnkRep: // tested 2019/11/02
-            Serial.println(F("user cmd unknown reply"));
+          case KTvErrorCodes::userCmdUnkRep:
+            dbgPrt->println(F("user cmd unknown reply"));
             break;
-          case KTvErrorCodes::userCmdTimeout: // tested 2019/11/02
-            Serial.println(F("user cmd no reply(timeout)"));
+          case KTvErrorCodes::userCmdTimeout:
+            dbgPrt->println(F("user cmd no reply(timeout)"));
             break;
           default:
             break;
@@ -468,8 +592,12 @@ void KimatTv::run()
 #endif
       st = 1;
       break;
-    case 1: // hangup
+    case 1: //
+      if(errorHandler !=nullptr) errorHandler(deviceErrorCode);
+      st = 2;
       break;
+    case 2: // hangup
+      break; 
     default:
       break;
     }
@@ -477,5 +605,55 @@ void KimatTv::run()
   break;
   default:
     break;
+  }
+}
+
+void KimatTv::drawPixels16(uint8_t x, uint8_t y, KTvOrientation orientation, uint16_t binary){
+#ifdef DBG_D7
+  if(dbgPrt != nullptr){
+    dbgPrt->println(F("KTv: Test point 1: drawPixels16!"));
+  }
+#endif
+  if (status == KTvStatus::busy)
+    return;
+#ifdef DBG_D7
+  if(dbgPrt != nullptr){
+    dbgPrt->println(F("KTv: Test point 2: drawPixels16!"));
+    dbgPrt->print(F("KTv: Test point 2 bitmap: 0x"));
+    dbgPrt->println(binary, HEX);
+  }
+#endif
+  uint8_t payload[]{x, y, (uint8_t)(binary >> 8), (uint8_t)binary};
+  memset(sendBfr, 0, sizeof(sendBfr));
+  pktLenToTx = constructPacket((uint8_t)KTvCmd::drawPixels16, (uint8_t)orientation, 4, payload, sendBfr);
+  isUsrCmdPending = true;
+}
+
+void KimatTv::drawPixelLine(KTvOrientation orientation, uint8_t offset, uint16_t *ptr){
+#ifdef DBG_D8
+  if(dbgPrt != nullptr){
+    dbgPrt->println(F("KTv: Test point 1: drawPixelLine!"));
+  }
+#endif
+  if (status == KTvStatus::busy)
+    return;
+#ifdef DBG_D8
+  if(dbgPrt != nullptr){
+    dbgPrt->println(F("KTv: Test point 2: drawPixelLine!"));
+  }
+#endif
+  if(orientation == KTvOrientation::horizontal){
+    for(uint8_t x=0; x<8;x++){ // 8 x 16 = 128
+      // while(!isReady());
+      waitUntilReady();
+      drawPixels16(x*16, offset, KTvOrientation::horizontal, *(ptr+x));
+    }
+  }
+  else if(orientation == KTvOrientation::vertical){
+    for(uint8_t y=0; y<6;y++){ // 6 x 16 = 96
+      // while(!isReady());
+      waitUntilReady();
+      drawPixels16(offset, y*16, KTvOrientation::vertical, *(ptr+y));
+    }
   }
 }
